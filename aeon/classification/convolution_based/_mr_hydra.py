@@ -8,6 +8,7 @@ import numpy as np
 from sklearn.linear_model import RidgeClassifierCV
 from sklearn.preprocessing import StandardScaler
 
+from aeon.base._base import _clone_estimator
 from aeon.classification import BaseClassifier
 from aeon.classification.convolution_based._hydra import _SparseScaler
 from aeon.transformations.collection.convolution_based import MultiRocket
@@ -30,6 +31,9 @@ class MultiRocketHydraClassifier(BaseClassifier):
         Number of kernels per group for the Hydra transform.
     n_groups : int, default=64
         Number of groups per dilation for the Hydra transform.
+    estimator : sklearn compatible classifier or None, default=None
+        The estimator fitted to the transformed data. If None, a
+        ``RidgeClassifierCV(alphas=np.logspace(-3, 3, 10))`` is used.
     class_weight{None, “balanced”}, dict or list of dicts, default=None
         From sklearn documentation:
         If None, all classes are assigned equal weights.
@@ -93,12 +97,14 @@ class MultiRocketHydraClassifier(BaseClassifier):
         self,
         n_kernels: int = 8,
         n_groups: int = 64,
+        estimator=None,
         class_weight=None,
         n_jobs: int = 1,
         random_state=None,
     ):
         self.n_kernels = n_kernels
         self.n_groups = n_groups
+        self.estimator = estimator
         self.class_weight = class_weight
         self.n_jobs = n_jobs
         self.random_state = random_state
@@ -130,8 +136,15 @@ class MultiRocketHydraClassifier(BaseClassifier):
 
         Xt = np.concatenate((Xt_hydra, Xt_multirocket), axis=1)
 
-        self.classifier = RidgeClassifierCV(
-            alphas=np.logspace(-3, 3, 10), class_weight=self.class_weight
+        self.classifier = _clone_estimator(
+            (
+                RidgeClassifierCV(
+                    alphas=np.logspace(-3, 3, 10), class_weight=self.class_weight
+                )
+                if self.estimator is None
+                else self.estimator
+            ),
+            self.random_state,
         )
         self.classifier.fit(Xt, y)
 

@@ -10,6 +10,7 @@ import numpy as np
 from sklearn.linear_model import RidgeClassifierCV
 from sklearn.pipeline import make_pipeline
 
+from aeon.base._base import _clone_estimator
 from aeon.classification import BaseClassifier
 from aeon.transformations.collection.convolution_based._hydra import HydraTransformer
 from aeon.utils.validation import check_n_jobs
@@ -34,6 +35,9 @@ class HydraClassifier(BaseClassifier):
         Number of kernels per group.
     n_groups : int, default=64
         Number of groups per dilation.
+    estimator : sklearn compatible classifier or None, default=None
+        The estimator fitted to the transformed data. If None, a
+        ``RidgeClassifierCV(alphas=np.logspace(-3, 3, 10))`` is used.
     class_weight{“balanced”, “balanced_subsample”}, dict or list of dicts, default=None
         From sklearn documentation:
         If not given, all classes are supposed to have weight one.
@@ -100,12 +104,14 @@ class HydraClassifier(BaseClassifier):
         self,
         n_kernels: int = 8,
         n_groups: int = 64,
+        estimator=None,
         class_weight=None,
         n_jobs: int = 1,
         random_state=None,
     ):
         self.n_kernels = n_kernels
         self.n_groups = n_groups
+        self.estimator = estimator
         self.class_weight = class_weight
         self.n_jobs = n_jobs
         self.random_state = random_state
@@ -121,13 +127,22 @@ class HydraClassifier(BaseClassifier):
             random_state=self.random_state,
         )
 
-        self._clf = make_pipeline(
-            transform,
-            _SparseScaler(),
-            RidgeClassifierCV(
-                alphas=np.logspace(-3, 3, 10), class_weight=self.class_weight
+        self._estimator = _clone_estimator(
+            (
+                RidgeClassifierCV(
+                    alphas=np.logspace(-3, 3, 10), class_weight=self.class_weight
+                )
+                if self.estimator is None
+                else self.estimator
             ),
+            self.random_state,
         )
+        if self.estimator is None:
+            self._clf = make_pipeline(transform, _SparseScaler(), self._estimator)
+        else:
+            self._clf = make_pipeline(
+                transform, _SparseScaler(), _ToNumpy(), self._estimator
+            )
         self._clf.fit(X, y)
 
         return self
@@ -162,3 +177,13 @@ class _SparseScaler:
     def fit_transform(self, X, y=None):
         self.fit(X)
         return self.transform(X)
+
+
+class _ToNumpy:
+    """Convert Hydra's torch features for aeon and sklearn estimators."""
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        return X.numpy() if hasattr(X, "numpy") else np.asarray(X)

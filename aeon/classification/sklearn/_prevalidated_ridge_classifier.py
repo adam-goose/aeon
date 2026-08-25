@@ -4,13 +4,14 @@ __maintainer__ = []
 __all__ = ["PrevalidatedRidgeClassifier"]
 
 import numpy as np
-from scipy.optimize import minimize
+from scipy.optimize import minimize_scalar
 from sklearn.preprocessing import LabelBinarizer
 
 from aeon.classification import BaseClassifier
 
 EPS = np.finfo(np.float32).eps
 LOG_EPS = np.log(EPS)
+CALIBRATION_XTOL = np.sqrt(np.finfo(np.float64).eps)
 
 
 def _softmax(X):
@@ -204,12 +205,12 @@ class PrevalidatedRidgeClassifier(BaseClassifier):
             # loocv predictions
             Y_loocv = Y_hat - delta
 
-            result = minimize(
+            result = minimize_scalar(
                 fun=_log_loss,
-                x0=1.0,
                 args=(Y, Y_loocv, target_mean),
-                method="BFGS",
-                jac="2-point",
+                method="brent",
+                bracket=(0.0, 1.0),
+                options={"xtol": CALIBRATION_XTOL},
             )
             # use of Y_hat in place of Y_loocv in minimize gives "naive scaling"
 
@@ -217,7 +218,7 @@ class PrevalidatedRidgeClassifier(BaseClassifier):
 
             if nll < best_loss:
                 best_loss = nll
-                calibration_scale = np.float32(result.x.item())
+                calibration_scale = np.float32(result.x)
                 self.lambda_ = lambda_
                 alpha_hat_best = alpha_hat
 
